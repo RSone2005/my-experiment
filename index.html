@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心理学実験室</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 基本的な背景色とフォントの設定 */
+        body {
+            background-color: #f3f4f6; /* 薄いグレー */
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+        }
+
+        /* コンテンツのコンテナ */
+        .container {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        /* 見出しのスタイル */
+        h1 {
+            font-size: 3rem;
+            color: #1f2937;
+            margin-bottom: 2rem;
+            font-weight: bold;
+        }
+
+        /* カスタムボタンのスタイル */
+        .start-button {
+            background-color: #3b82f6; /* 青色 */
+            color: white;
+            padding: 1rem 2rem;
+            font-size: 1.25rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .start-button:hover {
+            background-color: #2563eb;
+        }
+
+        .start-button:active {
+            transform: scale(0.98);
+        }
+
+        /* アラートの代わりとなるメッセージボックス用（モダンなUIのため） */
+        #message-box {
+            display: none;
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #1f2937;
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 9999px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            z-index: 50;
+            animation: fadeInOut 3s forwards;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translate(-50%, -20px); }
+            10% { opacity: 1; transform: translate(-50%, 0); }
+            90% { opacity: 1; transform: translate(-50%, 0); }
+            100% { opacity: 0; transform: translate(-50%, -20px); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>心理学実験室へようこそ</h1>
+        <button class="start-button" onclick="showAlert()">実験を開始する</button>
+    </div>
+
+    <!-- カスタムメッセージボックス（ブラウザの標準alert()を避けるための実装） -->
+    <div id="message-box">Hello World!</div>
+
+    <script>
+        /**
+         * ボタンがクリックされた時に実行される関数
+         */
+        function showAlert() {
+            // 指示通り標準的なアラートを表示
+            // ※よりモダンなUIにする場合は、以下のmessageBoxのコメントアウトを解除して使用してください
+            alert('Hello World!');
+
+            /* モダンな通知UIを使用する場合:
+            const msg = document.getElementById('message-box');
+            msg.style.display = 'block';
+            setTimeout(() => {
+                msg.style.display = 'none';
+            }, 3000);
+            */
+        }
+    </script>
+
+</body>
+</html>
