@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stroop Task - jsPsych</title>
+    <title>Stroop Task - jsPsych with GAS Integration</title>
     <!-- jsPsychコアと必要プラグインの読み込み (CDN) -->
     <script src="https://unpkg.com/jspsych@7.3.0"></script>
     <link href="https://unpkg.com/jspsych@7.3.0/css/jspsych.css" rel="stylesheet" type="text/css" />
     <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.2"></script>
     <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.2"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.2"></script>
     
     <style>
         html, body {
@@ -17,7 +18,6 @@
             padding: 0;
             background-color: #FFFFFF; /* 背景色: 白 */
             color: #333;
-            /* 指定のフォント設定 */
             font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
             overflow: hidden;
             display: flex;
@@ -41,7 +41,7 @@
             user-select: none;
         }
 
-        /* 教示画面のサイズ: 24px */
+        /* 教示画面・メッセージ画面のサイズ: 24px */
         .instructions {
             font-size: 24px;
             line-height: 1.6;
@@ -61,6 +61,22 @@
             padding: 2px 4px;
             font-weight: bold;
         }
+
+        /* 送信ステータス用の装飾 */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #007bff;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -70,14 +86,46 @@
         const jsPsych = initJsPsych({
             display_element: 'jspsych-target',
             on_finish: function() {
-                // 実験終了時にCSV形式でデータを表示
-                jsPsych.data.displayData('csv');
+                // 実験終了時に不要な行を除外し、特定の列のみを抽出してCSVを作成
+                const trials = jsPsych.data.get().filter({task: 'response'}).values();
+                const columns = ['subject_id', 'timestamp', 'word', 'color', 'condition', 'rt', 'correct'];
+                const cleanedCsv = convertToCSV(trials, columns);
+                
+                // GASのWebアプリURLへデータを送信
+                const gasWebappUrl = "https://script.google.com/macros/s/AKfycbyun7XMAuydS9-sSSZCjZWlJecX52N-hbJttB3nrkB0Of_4SrJh3Cgo0PZSFjUZnfik/exec";
+                sendDataWithRetry(cleanedCsv, gasWebappUrl);
             }
         });
 
         let timeline = [];
 
-        // セキュリティ制限回避のため、フルスクリーンの代わりにボタン押しで開始
+        // 1. 参加者情報の入力 (survey-textプラグイン)
+        const participant_info = {
+            type: jsPsychSurveyText,
+            questions: [
+                {
+                    prompt: '<div class="instructions"><p>参加者ID（例：学籍番号）を入力してください。</p></div>', 
+                    name: 'participant_id', 
+                    required: true
+                }
+            ],
+            button_label: '次へ',
+            on_finish: function(data) {
+                // 入力されたIDを取得
+                const subject_id = data.response.participant_id;
+                // 現在時刻を取得
+                const timestamp = new Date().toISOString();
+                
+                // 以降のすべてのデータにIDと時刻を自動付与
+                jsPsych.data.addProperties({
+                    subject_id: subject_id,
+                    timestamp: timestamp
+                });
+            }
+        };
+        timeline.push(participant_info);
+
+        // 2. 実験開始前の案内 (ボタン押しで開始)
         timeline.push({
             type: jsPsychHtmlButtonResponse,
             stimulus: '<div class="instructions"><p>ストループ課題を開始します。</p></div>',
@@ -85,7 +133,7 @@
             post_trial_gap: 500
         });
 
-        // 教示画面
+        // 3. 詳細な教示画面
         timeline.push({
             type: jsPsychHtmlKeyboardResponse,
             stimulus: `
@@ -118,7 +166,7 @@
                     stimulus_text: w,
                     stimulus_color: c,
                     correct_response: key_map[c],
-                    condition: condition_label // 分析用ラベル
+                    condition: condition_label
                 });
             }
         }
@@ -131,7 +179,7 @@
             trial_duration: 500
         };
 
-        // メイン刺激提示
+        // メイン刺激提示 (仕様は完全に維持)
         const trial = {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() {
@@ -140,19 +188,19 @@
                 return `<div class="stroop-stimulus" style="color: ${color}">${text}</div>`;
             },
             choices: ['r', 'b', 'g'],
-            // 【回答への直接の対応】無限に待ち続ける設定 (null はデフォルトですが明示しています)
             trial_duration: null, 
             response_ends_trial: true,
             data: {
                 task: 'response',
-                stimulus_text: jsPsych.timelineVariable('stimulus_text'),
-                stimulus_color: jsPsych.timelineVariable('stimulus_color'),
+                word: jsPsych.timelineVariable('stimulus_text'),
+                color: jsPsych.timelineVariable('stimulus_color'),
                 condition: jsPsych.timelineVariable('condition'),
                 correct_response: jsPsych.timelineVariable('correct_response')
             },
             on_finish: function(data) {
-                // 正誤判定を記録
-                data.correct = (data.response === data.correct_response);
+                // 正誤判定を確実に true / false の「文字列」として記録 (空欄を避ける)
+                const isCorrect = (data.response === data.correct_response);
+                data.correct = isCorrect ? "true" : "false";
             }
         };
 
@@ -167,18 +215,66 @@
         const test_procedure = {
             timeline: [fixation, trial, iti],
             timeline_variables: stimuli,
-            // 【重要】ここで全刺激リストからランダムに10回分を抽出する設定を行っています
+            // 9パターンの組み合わせからランダムに10回分を抽出する設定を維持
             sample: {
-                type: 'with-replacement', // 9パターンの組み合わせからランダムに抽出（重複あり）
-                size: 10                 // 合計試行数を10回に固定
+                type: 'with-replacement',
+                size: 10
             }
         };
         timeline.push(test_procedure);
 
-        // 実験の実行
-        window.onload = function() {
-            jsPsych.run(timeline);
-        };
-    </script>
-</body>
-</html>
+        /**
+         * jsPsychのデータ配列から特定の列のみを抽出し、CSV文字列に変換する関数
+         * @param {Array} dataArray - jsPsychの生の試行データ配列
+         * @param {Array} columns - 抽出したいヘッダー名の配列
+         * @returns {string} CSVフォーマットされた文字列
+         */
+        function convertToCSV(dataArray, columns) {
+            const header = columns.join(',');
+            const rows = dataArray.map(row => {
+                return columns.map(colName => {
+                    let val = row[colName];
+                    if (val === undefined || val === null) {
+                        val = '';
+                    }
+                    // ダブルクォーテーションや特殊文字を安全にエスケープ
+                    val = typeof val === 'string' ? val.replace(/"/g, '""') : val;
+                    if (typeof val === 'string' && (val.includes(',') || val.includes('\n') || val.includes('"'))) {
+                        val = `"${val}"`;
+                    }
+                    return val;
+                }).join(',');
+            });
+            return [header, ...rows].join('\n');
+        }
+
+        /**
+         * 指数バックオフを用いてGASへのデータ送信を試行する関数
+         * @param {string} csvData - 送信するCSVデータ
+         * @param {string} url - GASウェブアプリのURL
+         * @param {number} maxRetries - 最大試行回数
+         * @param {number} delay - 初期遅延時間（ミリ秒）
+         */
+        function sendDataWithRetry(csvData, url, maxRetries = 5, delay = 1000) {
+            // jsPsych終了時のDOM消失を防ぐため、安全に画面を取得して書き換える
+            const displayElement = jsPsych.getDisplayElement();
+            displayElement.innerHTML = `
+                <div class="instructions">
+                    <p>データをスプレッドシートに保存しています...</p>
+                    <div class="spinner"></div>
+                </div>
+            `;
+
+            function attempt(retriesLeft, currentDelay) {
+                fetch(url, {
+                    method: "POST",
+                    mode: "cors",
+                    headers: {
+                        "Content-Type": "text/plain"
+                    },
+                    body: JSON.stringify({ csvData: csvData })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('HTTPエラーコード: ' + response.status);
+                    }
