@@ -278,3 +278,54 @@
                     if (!response.ok) {
                         throw new Error('HTTPエラーコード: ' + response.status);
                     }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        displayElement.innerHTML = `
+                            <div class="instructions" style="color: #2b7a2b;">
+                                <p><strong>データの保存が正常に完了しました。</strong></p>
+                                <p>実験にご協力いただき、誠にありがとうございました。<br>このウィンドウを閉じて終了してください。</p>
+                            </div>
+                        `;
+                    } else {
+                        throw new Error(data.message || 'GAS内部エラーが発生しました。');
+                    }
+                })
+                .catch(error => {
+                    console.error("送信エラー:", error);
+                    
+                    if (retriesLeft > 0) {
+                        displayElement.innerHTML = `
+                            <div class="instructions">
+                                <p>接続を再試行しています... (残り ${retriesLeft} 回)</p>
+                                <div class="spinner"></div>
+                            </div>
+                        `;
+                        // 指数バックオフによる再試行（失敗するたびに待ち時間を倍にする）
+                        setTimeout(() => {
+                            attempt(retriesLeft - 1, currentDelay * 2);
+                        }, currentDelay);
+                    } else {
+                        // 最大回数の再試行に失敗した場合、生データを画面に表示して手動バックアップを促す
+                        displayElement.innerHTML = `
+                            <div class="instructions" style="color: #c0392b; max-width: 90%;">
+                                <p><strong>データの自動保存に失敗しました。</strong></p>
+                                <p>ネットワークの接続が遮断された可能性があります。以下のテキストボックス内の文字列をすべてコピーして、指示に従い保存または研究者に送信してください。</p>
+                                <textarea readonly style="width: 100%; height: 250px; margin-top: 15px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">${csvData}</textarea>
+                            </div>
+                        `;
+                    }
+                });
+            }
+
+            attempt(maxRetries, delay);
+        }
+
+        // 実験の起動
+        window.onload = function() {
+            jsPsych.run(timeline);
+        };
+    </script>
+</body>
+</html>
