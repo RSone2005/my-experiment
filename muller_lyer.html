@@ -16,6 +16,9 @@
 </head>
 <body>
     <script>
+        // 参加者IDを確実に保持するためのグローバル変数
+        let current_subject_id = "unknown";
+
         const jsPsych = initJsPsych({
             on_finish: function() {
                 // 1. 参加者IDの取得
@@ -28,7 +31,7 @@
                 // CSVのヘッダー定義
                 const headers = ["subject_id", "timestamp", "angle", "wing_length", "standard_len", "pse", "error_amount", "trial_num"];
                 
-                // CSVの各行のデータを生成
+                // CSV of each row
                 const rows = experimentData.map((trial, index) => {
                     const pse = Math.round(trial.variableLen);
                     return [
@@ -41,31 +44,28 @@
                         pse - 200,
                         index + 1
                     ].map(val => {
-                        // 値をダブルクォーテーションで囲み、内部のダブルクォーテーションをエスケープ
                         const str = String(val);
                         return `"${str.replace(/"/g, '""')}"`;
                     }).join(",");
                 });
 
-                // ヘッダーと行を結合してCSVテキストを構築
+                // ヘッダーと行を結合
                 const csvString = [headers.join(","), ...rows].join("\n");
 
                 const display = document.querySelector('.jspsych-content');
                 display.innerHTML = "<h1>送信中...</h1>";
 
-                // GASが提供するCORS対応の設定に合わせ、JSON形式の中に csvData キーとしてデータを格納して送信
                 fetch('https://script.google.com/macros/s/AKfycbxgEqBSObauII0K3Gp3qOGpTdA_Cs2Zpe8kIN6yiha1kduzU7XRbIkVw-QA7vPKnCTO/exec', {
                     method: 'POST',
-                    mode: 'cors', // GAS側の仕様に合わせ 'cors' に設定
+                    mode: 'cors',
                     headers: {
-                        'Content-Type': 'text/plain' // CORSプリフライトを避け、GASとの相性をよくするため text/plain を指定
+                        'Content-Type': 'text/plain'
                     },
                     body: JSON.stringify({
                         csvData: csvString
                     })
                 })
                 .then(response => {
-                    // response.json() を試みるが、no-corsなどで不透明レスポンス（opaque）になった場合のフォールバックも考慮
                     return response.json().catch(() => ({ status: 'success' }));
                 })
                 .then(data => {
@@ -83,13 +83,41 @@
             }
         });
 
+        // =========================================================================
+        // 【重要】IME（日本語入力）利用時の undefined.toLowerCase() エラーを完全に防ぐオーバーライド
+        // =========================================================================
+        jsPsych.pluginAPI.compareKeys = function(key1, key2) {
+            if (key1 === null || key1 === undefined || key2 === null || key2 === undefined) {
+                return false;
+            }
+            return String(key1).toLowerCase() === String(key2).toLowerCase();
+        };
+
         const id_input = {
             type: jsPsychHtmlKeyboardResponse,
-            stimulus: "<h1>参加者IDを入力してください</h1><input type='text' id='subject_id' autofocus><p>入力後、スペースキーを押して次へ</p>",
-            choices: [' '],
-            on_finish: function(data) {
+            stimulus: "<h1>参加者IDを入力してください</h1><input type='text' id='subject_id' oninput='current_subject_id = this.value' autofocus><p>入力後、スペースキーを押して次へ</p>",
+            choices: [" "], 
+            on_load: function() {
                 const el = document.getElementById('subject_id');
-                data.subject_id = el ? el.value : "unknown";
+                if (el) {
+                    // 入力欄でのタイピングイベントが jsPsych のグローバルキー監視をクラッシュさせるのを防ぐ
+                    el.addEventListener('keydown', (e) => {
+                        // 次へ進むためのスペースキーのみ伝播を許可
+                        if (e.key === ' ' || e.key === 'Spacebar') {
+                            return;
+                        }
+                        e.stopPropagation();
+                    });
+                    el.addEventListener('keyup', (e) => {
+                        if (e.key === ' ' || e.key === 'Spacebar') {
+                            return;
+                        }
+                        e.stopPropagation();
+                    });
+                }
+            },
+            on_finish: function(data) {
+                data.subject_id = current_subject_id;
             }
         };
 
@@ -106,7 +134,8 @@
 
         const welcome = {
             type: jsPsychHtmlKeyboardResponse,
-            stimulus: "<h1>ミュラー・リヤー錯視実験</h1><p>矢印キーで下の線の長さを調節し、スペースキーで決定します。<br>何かキーを押すと開始します。</p>"
+            stimulus: "<h1>ミュラー・リヤー錯視実験</h1><p>矢印キーで下の線の長さを調節し、スペースキーで決定します。<br>何かキーを押すと開始します。</p>",
+            choices: "ALL_KEYS"
         };
 
         const experiment_trials = trials.map((cond, index) => {
@@ -115,7 +144,7 @@
 
             return {
                 type: jsPsychCanvasKeyboardResponse,
-                choices: [' '],
+                choices: [" "], 
                 data: { 
                     is_experiment: true, 
                     angle: cond.angle, 
@@ -147,17 +176,34 @@
                 },
                 on_load: function() {
                     const canvas = document.querySelector('canvas');
-                    window.addEventListener('keydown', (e) => { pressedKeys[e.key] = true; });
-                    window.addEventListener('keyup', (e) => { pressedKeys[e.key] = false; });
+                    
+                    const keyDownHandler = (e) => { pressedKeys[e.key] = true; };
+                    const keyUpHandler = (e) => { pressedKeys[e.key] = false; };
+                    
+                    window.addEventListener('keydown', keyDownHandler);
+                    window.addEventListener('keyup', keyUpHandler);
+                    
+                    let animationFrameId;
                     const loop = () => {
                         if (pressedKeys['ArrowLeft']) variableLen = Math.max(50, variableLen - 3);
                         if (pressedKeys['ArrowRight']) variableLen = Math.min(450, variableLen + 3);
-                        if (pressedKeys['ArrowLeft'] || pressedKeys['ArrowRight']) this.stimulus(canvas);
-                        requestAnimationFrame(loop);
+                        if (pressedKeys['ArrowLeft'] || pressedKeys['ArrowRight']) {
+                            this.stimulus(canvas);
+                        }
+                        animationFrameId = requestAnimationFrame(loop);
                     };
                     loop();
+
+                    this.cleanup = () => {
+                        window.removeEventListener('keydown', keyDownHandler);
+                        window.removeEventListener('keyup', keyUpHandler);
+                        cancelAnimationFrame(animationFrameId);
+                    };
                 },
-                on_finish: function(data) { data.variableLen = variableLen; }
+                on_finish: function(data) { 
+                    data.variableLen = variableLen; 
+                    if (this.cleanup) this.cleanup(); 
+                }
             };
         });
 
