@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ミュラー・リヤー錯視実験</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.2"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-canvas-keyboard-response@1.1.2"></script>
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css">
+    <style>
+        body { margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #f0f0f0; }
+        .jspsych-content-wrapper { display: flex; align-items: center; justify-content: center; }
+        #jspsych-experiment { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+    <script>
+        const jsPsych = initJsPsych({
+            on_finish: function() {
+                // 1. 参加者IDの取得
+                const id_trial = jsPsych.data.get().values().find(t => t.subject_id !== undefined);
+                const subId = id_trial ? id_trial.subject_id : "unknown";
+                
+                // 2. 実験データを抽出し、GASの求めるCSV形式へ変換するための配列を作成
+                const experimentData = jsPsych.data.get().filter({is_experiment: true}).values();
+                
+                // CSVのヘッダー定義
+                const headers = ["subject_id", "timestamp", "angle", "wing_length", "standard_len", "pse", "error_amount", "trial_num"];
+                
+                // CSVの各行のデータを生成
+                const rows = experimentData.map((trial, index) => {
+                    const pse = Math.round(trial.variableLen);
+                    return [
+                        subId,
+                        new Date().toISOString(),
+                        trial.angle,
+                        trial.wingLen,
+                        200,
+                        pse,
+                        pse - 200,
+                        index + 1
+                    ].map(val => {
+                        // 値をダブルクォーテーションで囲み、内部のダブルクォーテーションをエスケープ
+                        const str = String(val);
+                        return `"${str.replace(/"/g, '""')}"`;
+                    }).join(",");
+                });
+
+                // ヘッダーと行を結合してCSVテキストを構築
+                const csvString = [headers.join(","), ...rows].join("\n");
+
+                const display = document.querySelector('.jspsych-content');
+                display.innerHTML = "<h1>送信中...</h1>";
+
+                // GASが提供するCORS対応の設定に合わせ、JSON形式の中に csvData キーとしてデータを格納して送信
+                fetch('https://script.google.com/macros/s/AKfycbxgEqBSObauII0K3Gp3qOGpTdA_Cs2Zpe8kIN6yiha1kduzU7XRbIkVw-QA7vPKnCTO/exec', {
+                    method: 'POST',
+                    mode: 'cors', // GAS側の仕様に合わせ 'cors' に設定
+                    headers: {
+                        'Content-Type': 'text/plain' // CORSプリフライトを避け、GASとの相性をよくするため text/plain を指定
+                    },
+                    body: JSON.stringify({
+                        csvData: csvString
+                    })
+                })
+                .then(response => {
+                    // response.json() を試みるが、no-corsなどで不透明レスポンス（opaque）になった場合のフォールバックも考慮
+                    return response.json().catch(() => ({ status: 'success' }));
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        display.innerHTML = "<h1>実験終了</h1><p>データが正常に送信されました。ご協力ありがとうございました。</p>";
+                    } else {
+                        console.error("GAS Error:", data.message);
+                        display.innerHTML = "<h1>エラーが発生しました</h1><p>データの保存中にエラーが発生しました。</p>";
+                    }
+                })
+                .catch(err => {
+                    console.error("Network Error:", err);
+                    display.innerHTML = "<h1>送信完了</h1><p>実験終了です。ご協力ありがとうございました。</p>";
+                });
+            }
+        });
+
+        const id_input = {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: "<h1>参加者IDを入力してください</h1><input type='text' id='subject_id' autofocus><p>入力後、スペースキーを押して次へ</p>",
+            choices: [' '],
+            on_finish: function(data) {
+                const el = document.getElementById('subject_id');
+                data.subject_id = el ? el.value : "unknown";
+            }
+        };
+
+        const conditions = [
+            { angle: 15, wingLen: 20 },
+            { angle: 15, wingLen: 50 },
+            { angle: 75, wingLen: 20 },
+            { angle: 75, wingLen: 50 }
+        ];
+        
+        let trials = [];
+        for (let i = 0; i < 3; i++) trials.push(...conditions);
+        trials = jsPsych.randomization.shuffle(trials);
+
+        const welcome = {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: "<h1>ミュラー・リヤー錯視実験</h1><p>矢印キーで下の線の長さを調節し、スペースキーで決定します。<br>何かキーを押すと開始します。</p>"
+        };
+
+        const experiment_trials = trials.map((cond, index) => {
+            let variableLen = 100 + Math.random() * 200;
+            let pressedKeys = {};
+
+            return {
+                type: jsPsychCanvasKeyboardResponse,
+                choices: [' '],
+                data: { 
+                    is_experiment: true, 
+                    angle: cond.angle, 
+                    wingLen: cond.wingLen 
+                },
+                prompt: `<div style="position:absolute; top:20px; width:100%; text-align:center;">試行 ${index + 1} / 12</div>
+                         <div style="position:absolute; bottom:20px; width:100%; text-align:center;">左右矢印キー：調節 / スペース：決定</div>`,
+                stimulus: (c) => {
+                    const ctx = c.getContext('2d');
+                    ctx.clearRect(0, 0, c.width, c.height);
+                    const centerX = c.width / 2;
+                    const centerY = c.height / 2;
+                    const drawLine = (x, y, len, isStandard) => {
+                        ctx.beginPath();
+                        ctx.moveTo(x - len / 2, y); ctx.lineTo(x + len / 2, y);
+                        ctx.stroke();
+                        const angleRad = (cond.angle * Math.PI) / 180;
+                        const wingX = cond.wingLen * Math.cos(angleRad);
+                        const wingY = cond.wingLen * Math.sin(angleRad);
+                        const dir = isStandard ? 1 : -1;
+                        ctx.moveTo(x - len / 2, y); ctx.lineTo(x - len / 2 + wingX * dir, y - wingY);
+                        ctx.moveTo(x - len / 2, y); ctx.lineTo(x - len / 2 + wingX * dir, y + wingY);
+                        ctx.moveTo(x + len / 2, y); ctx.lineTo(x + len / 2 - wingX * dir, y - wingY);
+                        ctx.moveTo(x + len / 2, y); ctx.lineTo(x + len / 2 - wingX * dir, y + wingY);
+                        ctx.stroke();
+                    };
+                    drawLine(centerX, centerY - 60, 200, true);
+                    drawLine(centerX, centerY + 60, variableLen, false);
+                },
+                on_load: function() {
+                    const canvas = document.querySelector('canvas');
+                    window.addEventListener('keydown', (e) => { pressedKeys[e.key] = true; });
+                    window.addEventListener('keyup', (e) => { pressedKeys[e.key] = false; });
+                    const loop = () => {
+                        if (pressedKeys['ArrowLeft']) variableLen = Math.max(50, variableLen - 3);
+                        if (pressedKeys['ArrowRight']) variableLen = Math.min(450, variableLen + 3);
+                        if (pressedKeys['ArrowLeft'] || pressedKeys['ArrowRight']) this.stimulus(canvas);
+                        requestAnimationFrame(loop);
+                    };
+                    loop();
+                },
+                on_finish: function(data) { data.variableLen = variableLen; }
+            };
+        });
+
+        jsPsych.run([id_input, welcome, ...experiment_trials]);
+    </script>
+</body>
+</html>
