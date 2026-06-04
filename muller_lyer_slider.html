@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ミュラー・リヤー錯視 調整法実験</title>
+
+  <script src="https://unpkg.com/jspsych@7.3.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.2"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.2"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-slider-response@1.1.2"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.2"></script>
+  <link href="https://unpkg.com/jspsych@7.3.0/css/jspsych.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    body, html {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background-color: #f8fafc; color: #1e293b;
+      display: flex; justify-content: center; align-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #jspsych-progressbar-container { display: none !important; }
+    
+    .experiment-container {
+      background-color: #ffffff; padding: 2rem; border-radius: 1rem;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+      max-width: 800px; width: 90%; text-align: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    canvas { border: 1px solid #e2e8f0; background-color: #ffffff; border-radius: 0.5rem; margin: 1rem 0; }
+    .jspsych-html-slider-response-container { width: 100% !important; max-width: 500px; margin: 1.5rem auto !important; }
+    input[type=range] { width: 100%; height: 8px; border-radius: 4px; background: #cbd5e1; -webkit-appearance: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; cursor: pointer; }
+    .trial-counter { font-size: 1rem; font-weight: 700; color: #475569; background-color: #f1f5f9; padding: 0.25rem 1rem; border-radius: 9999px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <div id="jspsych-target"></div>
+
+  <script>
+    const jsPsych = initJsPsych({ 
+      display_element: 'jspsych-target',
+      show_progress_bar: false 
+    });
+    
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbwd5tgJxYRdzXuotiBR9J_4Fiw2WGLGGHUHO1WbShYsMEBj0fHtMJJjO1ddIrZlSFqkfw/exec';
+
+    const angles = [15, 75];
+    const shaftLengths = [20, 50];
+    const repetitions = 3;
+
+    let design = [];
+    angles.forEach(angle => {
+      shaftLengths.forEach(length => {
+        for (let r = 0; r < repetitions; r++) {
+          design.push({ angle: angle, shaftLength: length });
+        }
+      });
+    });
+    design = jsPsych.randomization.shuffle(design);
+    const totalTrials = design.length;
+
+    const timeline = [];
+
+    timeline.push({
+      type: jsPsychSurveyText,
+      questions: [{ prompt: "参加者IDを入力してください", name: 'subject_id', required: true }],
+      button_label: "次へ",
+      on_finish: function(data) {
+        jsPsych.data.addProperties({subject_id: data.response.subject_id});
+      }
+    });
+
+    timeline.push({
+      type: jsPsychHtmlButtonResponse,
+      stimulus: '<div class="experiment-container"><h1 class="text-2xl font-bold mb-4 text-blue-600">ミュラー・リヤー錯視 実験</h1><p class="mb-6">下の「実験を開始」ボタンをクリックしてください。</p></div>',
+      choices: ['実験を開始']
+    });
+
+    design.forEach((trialConfig, index) => {
+      const initialValue = Math.floor(Math.random() * (300 - 100 + 1)) + 100;
+      const trialNum = index + 1;
+
+      timeline.push({
+        type: jsPsychHtmlSliderResponse,
+        stimulus: () => `
+          <div class="experiment-container">
+            <div class="trial-counter">試行 ${trialNum} / ${totalTrials}</div>
+            <canvas id="muller-canvas" width="680" height="280"></canvas>
+          </div>
+        `,
+        min: 50, max: 350, slider_start: initialValue, step: 1, button_label: '決定',
+        on_load: function() {
+          const canvas = document.getElementById('muller-canvas');
+          const ctx = canvas.getContext('2d');
+          const slider = document.querySelector('input[type="range"]');
+          function draw(val) {
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 3.5; ctx.strokeStyle = '#1e293b';
+            const cX = canvas.width/2; const tY = canvas.height*0.3; const bY = canvas.height*0.7;
+            const rad = (trialConfig.angle * Math.PI) / 180; const fL = trialConfig.shaftLength;
+            
+            ctx.beginPath(); ctx.moveTo(cX-100, tY); ctx.lineTo(cX+100, tY); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cX-100, tY); ctx.lineTo(cX-100+fL*Math.cos(rad), tY-fL*Math.sin(rad)); ctx.moveTo(cX-100, tY); ctx.lineTo(cX-100+fL*Math.cos(rad), tY+fL*Math.sin(rad)); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cX+100, tY); ctx.lineTo(cX+100-fL*Math.cos(rad), tY-fL*Math.sin(rad)); ctx.moveTo(cX+100, tY); ctx.lineTo(cX+100-fL*Math.cos(rad), tY+fL*Math.sin(rad)); ctx.stroke();
+
+            const cL = parseFloat(val);
+            ctx.beginPath(); ctx.moveTo(cX-cL/2, bY); ctx.lineTo(cX+cL/2, bY); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cX-cL/2, bY); ctx.lineTo(cX-cL/2-fL*Math.cos(rad), bY-fL*Math.sin(rad)); ctx.moveTo(cX-cL/2, bY); ctx.lineTo(cX-cL/2-fL*Math.cos(rad), bY+fL*Math.sin(rad)); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cX+cL/2, bY); ctx.lineTo(cX+cL/2+fL*Math.cos(rad), bY-fL*Math.sin(rad)); ctx.moveTo(cX+cL/2, bY); ctx.lineTo(cX+cL/2+fL*Math.cos(rad), bY+fL*Math.sin(rad)); ctx.stroke();
+          }
+          draw(slider.value);
+          slider.addEventListener('input', () => draw(slider.value));
+        },
+        data: {
+          task: 'muller_lyer_trial',
+          angle: trialConfig.angle,
+          wing_length: trialConfig.shaftLength
+        },
+        on_finish: function(data) {
+          data.timestamp = new Date().toISOString();
+          data.pse = parseFloat(data.response);
+          data.error_amount = data.pse - 200;
+        }
+      });
+    });
+
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: '<div id="status" class="experiment-container">データを送信中...</div>',
+      on_load: function() {
+        // stimulusやtrial_typeなどの不要な情報を除外してクリーンなデータを送信
+        const rawData = jsPsych.data.get().filter({task: 'muller_lyer_trial'}).values();
+        const cleanData = rawData.map(item => {
+            const { stimulus, trial_type, ...rest } = item;
+            return rest;
+        });
+
+        fetch(GAS_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cleanData)
+        })
+        .then(() => {
+            document.getElementById('status').innerHTML = "送信が完了しました。ありがとうございました。";
+        })
+        .catch(err => {
+            console.error(err);
+            document.getElementById('status').innerHTML = "送信処理を試行しました。";
+        });
+      },
+      choices: "NO_KEYS"
+    });
+
+    jsPsych.run(timeline);
+  </script>
+</body>
+</html>
